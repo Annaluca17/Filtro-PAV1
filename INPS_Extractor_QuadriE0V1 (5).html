@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INPS Extractor — Quadri E0/V1</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f5f5f4;--bg3:#ebebea;
+  --text:#1a1a19;--text2:#6b6b68;--text3:#9b9b97;
+  --border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.22);
+  --info-bg:#e6f1fb;--info-border:rgba(24,95,165,0.35);--info-text:#185fa5;
+  --success-bg:#eaf3de;--success-border:rgba(59,109,17,0.35);--success-text:#3b6d11;
+  --warn-bg:#faeeda;--warn-border:rgba(186,117,23,0.35);--warn-text:#854f0b;
+  --danger-bg:#fcebeb;--danger-border:rgba(163,45,45,0.35);--danger-text:#a32d2d;
+  --radius:8px;--radius-lg:12px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;
+     font-size:14px;color:var(--text);background:#f8f8f7;min-height:100vh;padding:28px 24px}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px}
+h1{font-size:17px;font-weight:500;margin-bottom:3px}
+.sub{font-size:12px;color:var(--text2);margin-bottom:20px}
+.zone{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:2.5rem;
+      text-align:center;cursor:pointer;transition:background .15s;background:var(--bg)}
+.zone:hover,.zone.drag{background:var(--info-bg);border-color:var(--info-border)}
+.zone p{font-weight:500;margin-bottom:5px}
+.zone small{font-size:12px;color:var(--text2)}
+.step2-box{background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px}
+.step2-title{font-weight:500;font-size:14px;color:var(--warn-text);margin-bottom:12px}
+.step2-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+input[type=month]{padding:7px 10px;border:1px solid var(--warn-border);border-radius:var(--radius);
+                  background:var(--bg);color:var(--text);font-size:13px;cursor:pointer}
+input[type=month]:focus{outline:none;border-color:var(--info-border)}
+.metrics{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.metric{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+        padding:11px 15px;flex:1;min-width:110px}
+.metric-label{font-size:11px;color:var(--text2);margin-bottom:3px}
+.metric-val{font-size:20px;font-weight:500}
+.metric-val.accent{color:var(--info-text)}
+.metric-val.warn{color:var(--warn-text)}
+.metric-val.danger{color:var(--danger-text)}
+.section-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.section-title{font-weight:500;font-size:13px}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;
+       border:1px solid var(--border2);border-radius:var(--radius);
+       background:var(--bg);color:var(--text);font-size:12px;cursor:pointer;transition:background .1s}
+button:hover{background:var(--bg2)}
+button.primary{background:var(--info-bg);border-color:var(--info-border);
+               color:var(--info-text);font-size:13px;padding:9px 18px;font-weight:500}
+button.primary:hover{opacity:.85}
+button.confirm{background:var(--warn-bg);border-color:var(--warn-border);
+               color:var(--warn-text);font-size:13px;padding:7px 16px;font-weight:500}
+button.save{background:var(--success-bg);border-color:var(--success-border);color:var(--success-text)}
+button:disabled{opacity:.38;cursor:default;pointer-events:none}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;
+      border:1px solid var(--border2);font-size:12px;cursor:pointer;
+      background:var(--bg);transition:background .1s;user-select:none;white-space:nowrap}
+.chip.blue{background:var(--info-bg);border-color:var(--info-border);color:var(--info-text)}
+.chip.warn{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-text)}
+.chip.danger{background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger-text)}
+.search-wrap{position:relative;margin-bottom:10px}
+.search-wrap input{width:100%;padding:7px 10px 7px 30px;border:1px solid var(--border);
+                   border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px}
+.search-wrap input:focus{outline:none;border-color:var(--info-border)}
+.search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text3)}
+.col-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));
+          gap:5px;max-height:380px;overflow-y:auto;padding:2px}
+.col-item{display:flex;align-items:center;gap:8px;padding:5px 8px;
+          border-radius:6px;border:1px solid transparent;cursor:pointer;transition:background .1s;position:relative}
+.col-item:hover{background:var(--bg2)}
+.col-item.checked{background:var(--info-bg);border-color:var(--info-border)}
+.col-item.empty-col{opacity:.45}
+.col-item.empty-col.hidden-empty{display:none}
+.col-item input{cursor:pointer;accent-color:var(--info-text)}
+.col-name{font-size:12px;line-height:1.3;flex:1}
+.col-name.checked{color:var(--info-text)}
+.col-tag{font-size:10px;padding:1px 5px;border-radius:10px;white-space:nowrap;
+         background:var(--bg3);color:var(--text2);margin-left:auto}
+.col-tag.empty-tag{background:var(--danger-bg);color:var(--danger-text)}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border-radius:20px}
+.badge.success{color:var(--success-text);background:var(--success-bg)}
+.footer-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.filter-info{font-size:11px;color:var(--text2);margin-top:6px;line-height:1.6}
+.filter-info b{color:var(--warn-text)}
+.empty-legend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);
+              padding:8px 10px;background:var(--danger-bg);border-radius:var(--radius);
+              border:1px solid var(--danger-border);margin-bottom:10px}
+#step-upload{display:block}
+#step-config{display:none}
+#step-main{display:none}
+</style>
+</head>
+<body>
+
+<h1>INPS Extractor — Quadri E0 / V1</h1>
+<p class="sub">Estrazione selettiva colonne da file INPS PASSWEB · Immedia S.p.A.</p>
+
+<!-- STEP 1: Upload -->
+<div id="step-upload">
+  <div class="zone" id="zone" onclick="document.getElementById('file-input').click()"
+       ondragover="ev(event,'over')" ondragleave="ev(event,'leave')" ondrop="ev(event,'drop')">
+    <p>Carica il file INPS (.xlsx)</p>
+    <small>Trascina qui oppure clicca per selezionare</small>
+    <br><small id="saved-hint" style="color:var(--info-text);margin-top:8px;display:none"></small>
+  </div>
+  <input type="file" id="file-input" accept=".xlsx" style="display:none" onchange="loadFile(this.files[0])">
+</div>
+
+<!-- STEP 2: Mese -->
+<div id="step-config">
+  <div class="step2-box">
+    <div class="step2-title">Configura filtro temporale</div>
+    <div class="step2-row">
+      <label style="font-size:13px;color:var(--warn-text)">Ultimo mese di lavoro:</label>
+      <input type="month" id="last-month-input">
+      <button class="confirm" onclick="confirmConfig()">Conferma →</button>
+    </div>
+    <p class="filter-info" style="margin-top:10px">
+      Verranno mantenute le righe con <b>Data Inizio Periodo ≥ primo giorno del mese indicato</b>,
+      indipendentemente dalla colonna Denuncia.
+    </p>
+  </div>
+  <div class="card" style="color:var(--text2);font-size:13px">
+    File: <span id="fname-display" style="color:var(--text);font-weight:500"></span> —
+    <span id="total-rows-display"></span> righe rilevate
+  </div>
+</div>
+
+<!-- STEP 3: Main -->
+<div id="step-main">
+
+  <div class="metrics">
+    <div class="metric"><div class="metric-label">Righe nel file</div><div class="metric-val" id="m-total">0</div></div>
+    <div class="metric"><div class="metric-label">Righe da esportare</div><div class="metric-val accent" id="m-visible">0</div></div>
+    <div class="metric"><div class="metric-label">Escluse (data)</div><div class="metric-val warn" id="m-excl-date">0</div></div>
+    <div class="metric"><div class="metric-label">Colonne selezionate</div><div class="metric-val accent" id="m-sel">0</div></div>
+    <div class="metric"><div class="metric-label">Col. vuote escluse</div><div class="metric-val danger" id="m-empty-excl">0</div></div>
+  </div>
+
+  <!-- Filtri riga -->
+  <div class="card">
+    <div class="section-head">
+      <span class="section-title">Filtri righe</span>
+      <div class="btn-row">
+        <span class="chip warn" id="chip-date" onclick="toggleFilter('date')">▲ Da ultimo mese in poi</span>
+        <span class="chip blue" id="chip-corrente" onclick="toggleFilter('corrente')">✓ Solo Corrente</span>
+        <span style="font-size:12px;color:var(--text2)" id="vis-label"></span>
+      </div>
+    </div>
+    <div id="filter-date-info" class="filter-info"></div>
+    <div id="filter-diag" class="filter-info" style="margin-top:4px;color:var(--text3)"></div>
+  </div>
+
+  <!-- Selezione colonne -->
+  <div class="card">
+    <div class="section-head">
+      <span class="section-title">Seleziona colonne</span>
+      <div class="btn-row">
+        <span id="saved-badge" class="badge success" style="display:none">✓ Salvato</span>
+        <button onclick="selectFiltered(true)">Seleziona filtrati</button>
+        <button onclick="selectFiltered(false)">Deseleziona</button>
+        <button onclick="selectAll(true)">Tutti</button>
+        <button onclick="selectAll(false)">Nessuno</button>
+        <button class="save" onclick="saveSelection()">💾 Salva selezione</button>
+      </div>
+    </div>
+
+    <!-- Filtro colonne vuote -->
+    <div class="section-head" style="margin-bottom:10px">
+      <span style="font-size:12px;color:var(--text2)" id="empty-cols-label"></span>
+      <div class="btn-row">
+        <span class="chip danger" id="chip-hide-empty" onclick="toggleHideEmpty()">✕ Nascondi colonne vuote</span>
+        <span class="chip" id="chip-show-only-empty" onclick="toggleShowOnlyEmpty()">Mostra solo vuote</span>
+      </div>
+    </div>
+    <div id="empty-legend" class="empty-legend" style="display:none">
+      <span style="color:var(--danger-text);font-weight:500">●</span>
+      Le colonne in rosso attenuato non hanno valori nelle righe visibili — non verranno incluse nell'export.
+    </div>
+
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="search" placeholder="Cerca colonna..." oninput="renderCols()">
+    </div>
+    <div class="col-grid" id="col-grid"></div>
+  </div>
+
+  <div class="footer-row">
+    <button onclick="resetApp()">← Cambia file</button>
+    <button onclick="backToConfig()">↑ Modifica mese</button>
+    <button class="primary" id="export-btn" onclick="exportXlsx()">Esporta xlsx</button>
+  </div>
+
+</div>
+
+<script>
+const LS_KEY = 'inps-quadri-cols-v2';
+const LS_MONTH_KEY = 'inps-last-month-v1';
+const MESI = {Gennaio:1,Febbraio:2,Marzo:3,Aprile:4,Maggio:5,Giugno:6,
+              Luglio:7,Agosto:8,Settembre:9,Ottobre:10,Novembre:11,Dicembre:12};
+
+let cols = [], rawDataRows = [], fileName = '';
+let filterDate = true, filterCorrente = true;
+let hideEmpty = true, showOnlyEmpty = false;
+let lastMonthDate = null;
+let corrIdx = -1, dataInizioIdx = -1, denunciaIdx = -1;
+let emptyCols = new Set(); // idx of cols with no values in visible rows
+
+function getSaved(){ try{ return JSON.parse(localStorage.getItem(LS_KEY))||null; }catch(e){ return null; } }
+function setSaved(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr)); }
+function getSavedMonth(){ try{ return localStorage.getItem(LS_MONTH_KEY)||null; }catch(e){ return null; } }
+function setSavedMonth(v){ localStorage.setItem(LS_MONTH_KEY, v); }
+
+window.onload = () => {
+  const saved = getSaved();
+  if(saved){ document.getElementById('saved-hint').textContent=`Selezione salvata: ${saved.length} colonne`; document.getElementById('saved-hint').style.display='block'; }
+  const sm = getSavedMonth();
+  if(sm) document.getElementById('last-month-input').value = sm;
+};
+
+function ev(e,type){
+  e.preventDefault();
+  const z=document.getElementById('zone');
+  if(type==='over') z.classList.add('drag');
+  else if(type==='leave') z.classList.remove('drag');
+  else if(type==='drop'){ z.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); }
+}
+
+function loadFile(file){
+  if(!file||!file.name.endsWith('.xlsx')) return;
+  fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result,{type:'array',raw:false,cellDates:true,cellNF:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+    const headerRow = data[3]||[];
+    rawDataRows = data.slice(4).filter(r=>r.some(c=>c!==null&&c!==''));
+
+    corrIdx = headerRow.findIndex(h=>h&&h.toLowerCase().includes('correnti'));
+    dataInizioIdx = headerRow.findIndex(h=>h&&h.toLowerCase().includes('data inizio'));
+    denunciaIdx = headerRow.findIndex(h=>h&&h.toLowerCase().includes('denuncia')&&!h.toLowerCase().includes('dichiarante'));
+
+    const saved = getSaved();
+    cols = headerRow.map((name,i)=>({
+      name: name||`Col ${i+1}`, idx:i,
+      sel: saved ? saved.includes(name) : false
+    }));
+
+    document.getElementById('step-upload').style.display='none';
+    document.getElementById('step-config').style.display='block';
+    document.getElementById('fname-display').textContent = fileName;
+    document.getElementById('total-rows-display').textContent = rawDataRows.length;
+
+    if(!getSavedMonth()&&dataInizioIdx>=0){
+      const dates = rawDataRows.map(r=>parseDataInizio(r[dataInizioIdx])).filter(Boolean);
+      if(dates.length){
+        const maxDate = new Date(Math.max(...dates.map(d=>d.getTime())));
+        document.getElementById('last-month-input').value =
+          `${maxDate.getFullYear()}-${String(maxDate.getMonth()+1).padStart(2,'0')}`;
+      }
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmConfig(){
+  const val = document.getElementById('last-month-input').value;
+  if(!val){ alert('Seleziona il mese.'); return; }
+  setSavedMonth(val);
+  const [y,m] = val.split('-').map(Number);
+  lastMonthDate = new Date(y,m-1,1);
+  document.getElementById('step-config').style.display='none';
+  document.getElementById('step-main').style.display='block';
+  document.getElementById('m-total').textContent = rawDataRows.length;
+  updateFilterInfo();
+  computeEmptyCols();
+  renderCols();
+  updateMetrics();
+}
+
+function backToConfig(){
+  document.getElementById('step-main').style.display='none';
+  document.getElementById('step-config').style.display='block';
+}
+
+// --- Parsing ---
+function parseDataInizio(val){
+  if(!val) return null;
+  // Native Date object (cellDates:true)
+  if(val instanceof Date) return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+  const s = String(val).trim();
+  // DD/MM/YYYY
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m) return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
+  // YYYY-MM-DD
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]));
+  // MM/DD/YYYY fallback
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m) return new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2]));
+  return null;
+}
+function parseDenuncia(str){
+  if(!str||typeof str!=='string') return null;
+  const m=str.match(/(\d{4})\s*-\s*(\w+)/);
+  if(!m) return null;
+  const month=MESI[m[2]]; if(!month) return null;
+  return new Date(parseInt(m[1]),month-1,1);
+}
+
+// --- Row filter ---
+function rowPassesDateFilter(row){
+  if(!lastMonthDate) return true;
+  const di=parseDataInizio(row[dataInizioIdx]);
+  return !!(di&&di>=lastMonthDate);
+}
+function getVisRows(){
+  return rawDataRows.filter(r=>{
+    const passesDate = rowPassesDateFilter(r);
+    if(filterDate && !passesDate) return false;
+    // Righe >= cessazione: tutti gli stati Correnti/Annullato/Spento inclusi
+    // Filtro "Solo Corrente" si applica solo se il filtro data è disattivo
+    if(!filterDate && filterCorrente && corrIdx>=0 && r[corrIdx]!=='Corrente') return false;
+    return true;
+  });
+}
+
+// --- Empty columns detection ---
+function computeEmptyCols(){
+  const vis = getVisRows();
+  emptyCols = new Set();
+  cols.forEach(c=>{
+    const hasValue = vis.some(r=>{
+      const v = r[c.idx];
+      return v!==null && v!==undefined && String(v).trim()!=='' && String(v).trim()!=='0';
+    });
+    if(!hasValue) emptyCols.add(c.idx);
+  });
+  // Update legend
+  const emptySelCount = cols.filter(c=>c.sel&&emptyCols.has(c.idx)).length;
+  document.getElementById('empty-legend').style.display = (emptySelCount>0&&!hideEmpty)?'flex':'none';
+  document.getElementById('empty-cols-label').textContent =
+    emptyCols.size > 0
+      ? `${emptyCols.size} colonne senza valori nelle righe visibili (${emptySelCount} selezionate)`
+      : 'Nessuna colonna vuota rilevata';
+}
+
+// --- Metrics ---
+function updateMetrics(){
+  const vis = getVisRows();
+  const excl = rawDataRows.filter(r=>filterDate&&!rowPassesDateFilter(r)).length;
+  const selCols = cols.filter(c=>c.sel);
+  const effectiveCols = hideEmpty ? selCols.filter(c=>!emptyCols.has(c.idx)) : selCols;
+  const emptyExcl = hideEmpty ? selCols.filter(c=>emptyCols.has(c.idx)).length : 0;
+  document.getElementById('m-visible').textContent = vis.length;
+  document.getElementById('m-excl-date').textContent = excl;
+  document.getElementById('m-sel').textContent = `${effectiveCols.length} / ${cols.length}`;
+  document.getElementById('m-empty-excl').textContent = emptyExcl;
+  document.getElementById('vis-label').textContent = `${vis.length} righe da esportare`;
+  const btn = document.getElementById('export-btn');
+  btn.textContent = `Esporta xlsx — ${effectiveCols.length} col × ${vis.length} righe`;
+  btn.disabled = effectiveCols.length===0||vis.length===0;
+}
+
+function updateFilterInfo(){
+  if(!lastMonthDate) return;
+  const label = lastMonthDate.toLocaleDateString('it-IT',{year:'numeric',month:'long'});
+  document.getElementById('filter-date-info').innerHTML =
+    `Soglia attiva: <b>${label}</b> — mantiene tutte le righe con Data Inizio Periodo ≥ ${lastMonthDate.toLocaleDateString('it-IT')} (incluse più righe con stesso periodo). Per le righe ≥ cessazione il filtro "Solo Corrente" è disattivato: vengono inclusi tutti i valori di Correnti/Obsoleti.`;
+  // Diagnostica parser
+  let ok=0, fail=0, below=0;
+  rawDataRows.forEach(r=>{
+    const di=parseDataInizio(r[dataInizioIdx]);
+    if(!di) fail++;
+    else if(di>=lastMonthDate) ok++;
+    else below++;
+  });
+  document.getElementById('filter-diag').textContent =
+    `Diagnostica parser: ${ok} righe ≥ soglia · ${below} righe < soglia (escluse) · ${fail} righe con data non parsabile${fail>0?' ← possibile problema':''}.`;
+}
+
+// --- Toggles ---
+function toggleFilter(type){
+  if(type==='date'){
+    filterDate=!filterDate;
+    const c=document.getElementById('chip-date');
+    c.className='chip'+(filterDate?' warn':'');
+    c.textContent=(filterDate?'▲ ':'— ')+'Da ultimo mese in poi';
+  } else {
+    filterCorrente=!filterCorrente;
+    const c=document.getElementById('chip-corrente');
+    c.className='chip'+(filterCorrente?' blue':'');
+    c.textContent=(filterCorrente?'✓ ':'○ ')+'Solo Corrente';
+  }
+  computeEmptyCols();
+  renderCols();
+  updateMetrics();
+}
+
+function toggleHideEmpty(){
+  hideEmpty=!hideEmpty;
+  showOnlyEmpty=false;
+  document.getElementById('chip-hide-empty').className='chip'+(hideEmpty?' danger':'');
+  document.getElementById('chip-hide-empty').textContent=(hideEmpty?'✕ ':'○ ')+'Nascondi colonne vuote';
+  document.getElementById('chip-show-only-empty').className='chip';
+  document.getElementById('chip-show-only-empty').textContent='Mostra solo vuote';
+  document.getElementById('empty-legend').style.display='none';
+  renderCols(); updateMetrics();
+}
+
+function toggleShowOnlyEmpty(){
+  showOnlyEmpty=!showOnlyEmpty;
+  if(showOnlyEmpty) hideEmpty=false;
+  document.getElementById('chip-show-only-empty').className='chip'+(showOnlyEmpty?' warn':'');
+  document.getElementById('chip-show-only-empty').textContent=(showOnlyEmpty?'▲ ':'')+'Mostra solo vuote';
+  if(!showOnlyEmpty){ document.getElementById('chip-hide-empty').className='chip'; hideEmpty=false; }
+  renderCols(); updateMetrics();
+}
+
+// --- Column grid ---
+function renderCols(){
+  const q = document.getElementById('search').value.toLowerCase();
+  const grid = document.getElementById('col-grid');
+  grid.innerHTML='';
+
+  let filtered = cols.filter(c=>{
+    if(q && !c.name.toLowerCase().includes(q)) return false;
+    if(showOnlyEmpty && !emptyCols.has(c.idx)) return false;
+    return true;
+  });
+
+  filtered.forEach(c=>{
+    const isEmpty = emptyCols.has(c.idx);
+    const div = document.createElement('label');
+    let cls = 'col-item';
+    if(c.sel) cls+=' checked';
+    if(isEmpty) cls+=' empty-col';
+    if(isEmpty && hideEmpty) cls+=' hidden-empty';
+    div.className = cls;
+
+    const tag = isEmpty
+      ? `<span class="col-tag empty-tag">vuota</span>`
+      : '';
+
+    div.innerHTML=`<input type="checkbox" ${c.sel?'checked':''} data-idx="${c.idx}">
+                   <span class="col-name${c.sel?' checked':''}">${c.name}</span>${tag}`;
+    div.querySelector('input').addEventListener('change',()=>{
+      cols[c.idx].sel=!cols[c.idx].sel;
+      renderCols(); updateMetrics();
+    });
+    grid.appendChild(div);
+  });
+
+  const emptySelCount = cols.filter(c=>c.sel&&emptyCols.has(c.idx)).length;
+  document.getElementById('empty-legend').style.display =
+    (!hideEmpty && emptySelCount>0) ? 'flex' : 'none';
+  updateMetrics();
+}
+
+function selectFiltered(val){
+  const q=document.getElementById('search').value.toLowerCase();
+  cols.filter(c=>{
+    if(q&&!c.name.toLowerCase().includes(q)) return false;
+    if(showOnlyEmpty&&!emptyCols.has(c.idx)) return false;
+    return true;
+  }).forEach(c=>{ cols[c.idx].sel=val; });
+  renderCols(); updateMetrics();
+}
+function selectAll(val){ cols.forEach(c=>c.sel=val); renderCols(); updateMetrics(); }
+
+function saveSelection(){
+  setSaved(cols.filter(c=>c.sel).map(c=>c.name));
+  const b=document.getElementById('saved-badge');
+  b.style.display='inline-flex';
+  setTimeout(()=>b.style.display='none',2500);
+}
+
+// --- Export ---
+function exportXlsx(){
+  const vis=getVisRows();
+  const selCols=cols.filter(c=>c.sel&&!(hideEmpty&&emptyCols.has(c.idx)));
+  const headers=selCols.map(c=>c.name);
+  const rows=vis.map(r=>selCols.map(c=>r[c.idx]??''));
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  ws['!cols']=headers.map(h=>({wch:Math.min(Math.max(h.length,10),40)}));
+  const wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2,ws,'Quadri E0 e V1');
+  XLSX.writeFile(wb2,fileName.replace('.xlsx','')+'_filtrato.xlsx');
+}
+
+function resetApp(){
+  cols=[];rawDataRows=[];fileName='';emptyCols=new Set();
+  document.getElementById('step-main').style.display='none';
+  document.getElementById('step-config').style.display='none';
+  document.getElementById('step-upload').style.display='block';
+  document.getElementById('file-input').value='';
+}
+</script>
+</body>
+</html>
