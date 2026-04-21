@@ -61,6 +61,10 @@ button:disabled{opacity:.38;cursor:default;pointer-events:none}
 .chip.blue{background:var(--info-bg);border-color:var(--info-border);color:var(--info-text)}
 .chip.warn{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-text)}
 .chip.danger{background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger-text)}
+.year-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.year-chip{padding:4px 13px;border-radius:20px;border:1px solid var(--border2);font-size:12px;
+           cursor:pointer;background:var(--bg);transition:background .1s;user-select:none;font-weight:500}
+.year-chip.on{background:var(--info-bg);border-color:var(--info-border);color:var(--info-text)}
 .search-wrap{position:relative;margin-bottom:10px}
 .search-wrap input{width:100%;padding:7px 10px 7px 30px;border:1px solid var(--border);
                    border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:13px}
@@ -154,6 +158,19 @@ button:disabled{opacity:.38;cursor:default;pointer-events:none}
     <div id="filter-diag" class="filter-info" style="margin-top:4px;color:var(--text3)"></div>
   </div>
 
+  <!-- Filtro annualità -->
+  <div class="card">
+    <div class="section-head">
+      <span class="section-title">Filtro annualità</span>
+      <div class="btn-row">
+        <button onclick="setAllYears(true)">Seleziona tutti</button>
+        <button onclick="setAllYears(false)">Deseleziona tutti</button>
+        <span style="font-size:12px;color:var(--text2)" id="year-label"></span>
+      </div>
+    </div>
+    <div class="year-grid" id="year-grid"></div>
+  </div>
+
   <!-- Selezione colonne -->
   <div class="card">
     <div class="section-head">
@@ -207,7 +224,9 @@ let filterDate = true, filterCorrente = true;
 let hideEmpty = true, showOnlyEmpty = false;
 let lastMonthDate = null;
 let corrIdx = -1, dataInizioIdx = -1, denunciaIdx = -1;
-let emptyCols = new Set(); // idx of cols with no values in visible rows
+let emptyCols = new Set();
+let availableYears = [];   // sorted array of years found in file
+let selectedYears = new Set(); // empty = all selected (no year filter) // idx of cols with no values in visible rows
 
 function getSaved(){ try{ return JSON.parse(localStorage.getItem(LS_KEY))||null; }catch(e){ return null; } }
 function setSaved(arr){ localStorage.setItem(LS_KEY, JSON.stringify(arr)); }
@@ -276,6 +295,16 @@ function confirmConfig(){
   document.getElementById('step-config').style.display='none';
   document.getElementById('step-main').style.display='block';
   document.getElementById('m-total').textContent = rawDataRows.length;
+
+  // Populate year filter from all rows
+  const yearSet = new Set();
+  rawDataRows.forEach(r=>{
+    const d = parseDataInizio(r[dataInizioIdx]);
+    if(d) yearSet.add(d.getFullYear());
+  });
+  availableYears = Array.from(yearSet).sort();
+  selectedYears = new Set(); // all selected by default
+  renderYearFilter();
   updateFilterInfo();
   computeEmptyCols();
   renderCols();
@@ -322,11 +351,57 @@ function getVisRows(){
   return rawDataRows.filter(r=>{
     const passesDate = rowPassesDateFilter(r);
     if(filterDate && !passesDate) return false;
-    // Righe >= cessazione: tutti gli stati Correnti/Annullato/Spento inclusi
-    // Filtro "Solo Corrente" si applica solo se il filtro data è disattivo
     if(!filterDate && filterCorrente && corrIdx>=0 && r[corrIdx]!=='Corrente') return false;
+    // Filtro annualità: selectedYears vuoto = tutti inclusi
+    if(selectedYears.size > 0){
+      const d = parseDataInizio(r[dataInizioIdx]);
+      if(!d || !selectedYears.has(d.getFullYear())) return false;
+    }
     return true;
   });
+}
+
+// --- Year filter ---
+function renderYearFilter(){
+  const grid = document.getElementById('year-grid');
+  grid.innerHTML = '';
+  const allOn = selectedYears.size === 0;
+  availableYears.forEach(y=>{
+    const on = allOn || selectedYears.has(y);
+    const chip = document.createElement('span');
+    chip.className = 'year-chip' + (on ? ' on' : '');
+    chip.textContent = y;
+    chip.onclick = () => toggleYear(y);
+    grid.appendChild(chip);
+  });
+  const active = allOn ? availableYears.length : selectedYears.size;
+  document.getElementById('year-label').textContent =
+    allOn
+      ? `Tutti gli anni (${availableYears.length})`
+      : `${active} / ${availableYears.length} anni selezionati`;
+}
+
+function toggleYear(y){
+  if(selectedYears.size === 0){
+    // Tutti attivi → click su uno: attiva solo quell'anno
+    selectedYears = new Set([y]);
+  } else if(selectedYears.has(y)){
+    selectedYears.delete(y);
+    // Se rimangono tutti gli anni → reset a "tutti" (set vuoto)
+    if(selectedYears.size === availableYears.length) selectedYears = new Set();
+  } else {
+    selectedYears.add(y);
+    if(selectedYears.size === availableYears.length) selectedYears = new Set();
+  }
+  renderYearFilter();
+  computeEmptyCols(); renderCols(); updateMetrics();
+}
+
+function setAllYears(val){
+  selectedYears = val ? new Set() : new Set(['__none__']); // vuoto=tutti, __none__=nessuno
+  // Per "deseleziona tutti" usiamo un token impossibile così size>0 ma nessun anno reale passa
+  renderYearFilter();
+  computeEmptyCols(); renderCols(); updateMetrics();
 }
 
 // --- Empty columns detection ---
@@ -494,6 +569,7 @@ function exportXlsx(){
 
 function resetApp(){
   cols=[];rawDataRows=[];fileName='';emptyCols=new Set();
+  availableYears=[];selectedYears=new Set();
   document.getElementById('step-main').style.display='none';
   document.getElementById('step-config').style.display='none';
   document.getElementById('step-upload').style.display='block';
