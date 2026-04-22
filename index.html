@@ -219,7 +219,7 @@ const LS_MONTH_KEY = 'inps-last-month-v1';
 const MESI = {Gennaio:1,Febbraio:2,Marzo:3,Aprile:4,Maggio:5,Giugno:6,
               Luglio:7,Agosto:8,Settembre:9,Ottobre:10,Novembre:11,Dicembre:12};
 
-let cols = [], rawDataRows = [], fileName = '';
+let cols = [], rawDataRows = [], fileName = '', srcWs = null;
 let filterDate = true, filterCorrente = true;
 let hideEmpty = true, showOnlyEmpty = false;
 let lastMonthDate = null;
@@ -253,11 +253,17 @@ function loadFile(file){
   fileName = file.name;
   const reader = new FileReader();
   reader.onload = e => {
-    const wb = XLSX.read(e.target.result,{type:'array',raw:false,cellDates:true,cellNF:false});
+    const wb = XLSX.read(e.target.result,{type:'array',raw:true,cellDates:true,cellNF:false});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+    srcWs = ws; // keep reference for cell-type-aware export
+    const data = XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
     const headerRow = data[3]||[];
-    rawDataRows = data.slice(4).filter(r=>r.some(c=>c!==null&&c!==''));
+    // Track original row index (Excel row = data index + 1, 1-based)
+    const allDataRows = data.slice(4).map((r,i)=>({row:r, srcRowIdx:i+4}));
+    rawDataRows = allDataRows.filter(({row})=>row.some(c=>c!==null&&c!=='')).map(({row,srcRowIdx})=>{
+      row._srcRowIdx = srcRowIdx; // attach source row index for cell lookup
+      return row;
+    });
 
     corrIdx = headerRow.findIndex(h=>h&&h.toLowerCase().includes('correnti'));
     dataInizioIdx = headerRow.findIndex(h=>h&&h.toLowerCase().includes('data inizio'));
@@ -318,9 +324,15 @@ function backToConfig(){
 
 // --- Parsing ---
 function parseDataInizio(val){
-  if(!val) return null;
+  if(!val && val!==0) return null;
   // Native Date object (cellDates:true)
   if(val instanceof Date) return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+  // Excel serial number
+  if(typeof val === 'number'){
+    const d = XLSX.SSF.parse_date_code(val);
+    if(d) return new Date(d.y, d.m-1, d.d);
+    return null;
+  }
   const s = String(val).trim();
   // DD/MM/YYYY
   let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -328,9 +340,6 @@ function parseDataInizio(val){
   // YYYY-MM-DD
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m) return new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]));
-  // MM/DD/YYYY fallback
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if(m) return new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2]));
   return null;
 }
 function parseDenuncia(str){
@@ -556,19 +565,55 @@ function saveSelection(){
 
 // --- Export ---
 function exportXlsx(){
-  const vis=getVisRows();
-  const selCols=cols.filter(c=>c.sel&&!(hideEmpty&&emptyCols.has(c.idx)));
-  const headers=selCols.map(c=>c.name);
-  const rows=vis.map(r=>selCols.map(c=>r[c.idx]??''));
-  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
-  ws['!cols']=headers.map(h=>({wch:Math.min(Math.max(h.length,10),40)}));
-  const wb2=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb2,ws,'Quadri E0 e V1');
-  XLSX.writeFile(wb2,fileName.replace('.xlsx','')+'_filtrato.xlsx');
+  const vis = getVisRows();
+  const selCols = cols.filter(c=>c.sel&&!(hideEmpty&&emptyCols.has(c.idx)));
+  const headers = selCols.map(c=>c.name);
+
+  const wb2 = XLSX.utils.book_new();
+  const ws2 = {};
+  const R = vis.length + 1; // rows: 1 header + data
+  const C = selCols.length;
+
+  // Header row (row 0 → Excel row 1)
+  headers.forEach((h,ci)=>{
+    const addr = XLSX.utils.encode_cell({r:0,c:ci});
+    ws2[addr] = {t:'s', v:h};
+  });
+
+  // Data rows: copy cell objects from source worksheet preserving type/format
+  vis.forEach((row,ri)=>{
+    const srcRow = row._srcRowIdx; // original 0-based index in data array → Excel row = srcRow+1
+    selCols.forEach((col,ci)=>{
+      const addr = XLSX.utils.encode_cell({r:ri+1, c:ci});
+      // Try to get original cell from source worksheet
+      const srcAddr = srcWs ? XLSX.utils.encode_cell({r:srcRow+1, c:col.idx}) : null;
+      const srcCell = srcWs && srcAddr ? srcWs[srcAddr] : null;
+      if(srcCell){
+        // Clone cell preserving type (t), value (v), formatted text (w), number format (z)
+        const cell = {t:srcCell.t, v:srcCell.v};
+        if(srcCell.z) cell.z = srcCell.z; // preserve number format (e.g. currency)
+        // For dates stored as serial numbers, keep as date type
+        if(srcCell.t==='d' && srcCell.v instanceof Date) cell.v = srcCell.v;
+        ws2[addr] = cell;
+      } else {
+        // Fallback: infer type from raw value
+        const v = row[col.idx];
+        if(v===null||v===undefined||v==='') ws2[addr]={t:'z',v:''};
+        else if(typeof v==='number') ws2[addr]={t:'n',v};
+        else if(v instanceof Date) ws2[addr]={t:'d',v};
+        else ws2[addr]={t:'s',v:String(v)};
+      }
+    });
+  });
+
+  ws2['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0},e:{r:R,c:C-1}});
+  ws2['!cols'] = headers.map(h=>({wch:Math.min(Math.max(h.length,10),40)}));
+  XLSX.utils.book_append_sheet(wb2, ws2, 'Quadri E0 e V1');
+  XLSX.writeFile(wb2, fileName.replace('.xlsx','')+'_filtrato.xlsx');
 }
 
 function resetApp(){
-  cols=[];rawDataRows=[];fileName='';emptyCols=new Set();
+  cols=[];rawDataRows=[];fileName='';emptyCols=new Set();srcWs=null;
   availableYears=[];selectedYears=new Set();
   document.getElementById('step-main').style.display='none';
   document.getElementById('step-config').style.display='none';
